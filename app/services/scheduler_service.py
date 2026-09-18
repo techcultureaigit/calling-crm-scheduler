@@ -221,7 +221,10 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                 from app.services.telecommunication_service import downsample_pcm_24k_to_8k, pcm_8k_to_mulaw
                 from app.services import ai_service
                 import base64, httpx as _httpx
+                from app.core.db import invalidate_survey_config_cache
 
+                # Invalidate cache BEFORE loading config to ensure we get the latest data
+                invalidate_survey_config_cache(survey_id)
                 survey_config = await get_survey_config(survey_id)
                 tts_provider = survey_config.get("tts_provider") if survey_config else None
                 voice_id = survey_config.get("tts_voice_id") if survey_config else None
@@ -313,9 +316,6 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                         {"$set": {"questionsAudioMulaw": questions_mulaw_dict}}
                     )
                     logger.info(f"Pre-cached audio for {len(questions_mulaw_dict)} questions in survey {survey_id}")
-
-                from app.core.db import invalidate_survey_config_cache
-                invalidate_survey_config_cache(survey_id)
 
             except Exception as audio_pre_err:
                 logger.error(f"Failed to pre-generate survey audio assets for survey {survey_id}: {audio_pre_err}. Will synthesize live.")
@@ -499,6 +499,7 @@ async def scheduler_loop():
     logger.info("Outbound call scheduler service started.")
     while True:
         try:
+            logger.info("Scanning for scheduled surveys...")
             await process_scheduled_surveys()
         except Exception as e:
             logger.error(f"Error in scheduler_loop iteration: {e}")
