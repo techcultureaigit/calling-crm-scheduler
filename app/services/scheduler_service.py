@@ -428,7 +428,7 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     while True:
                         active_calls_count = await sessions_col.count_documents({
                             "status": "IN_PROGRESS",
-                            "created_at": {"$gte": datetime.utcnow() - timedelta(minutes=30)}
+                            "created_at": {"$gte": datetime.utcnow() - timedelta(minutes=2)}
                         })
                         
                         # Clean up done tasks
