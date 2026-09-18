@@ -339,6 +339,8 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                 my_numbers_list = await get_my_numbers()
                 my_numbers_count = len(my_numbers_list)
                 max_concurrency = max(1, my_numbers_count) if my_numbers_count > 0 else 10
+
+                print(my_numbers_list)
                 
                 agent_numbers = []
                 for n in my_numbers_list:
