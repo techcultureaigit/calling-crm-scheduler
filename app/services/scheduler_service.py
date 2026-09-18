@@ -48,9 +48,9 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
         mappings_col = get_collection("call_survey_mappings")
 
         # Verify WebSocket endpoint is active before processing any scheduled surveys
-        # if not await check_websocket_active():
-        #     logger.warning("WebSocket server / URL is NOT active or reachable. Skipping outbound survey processing until server is active.")
-        #     return
+        if not await check_websocket_active():
+            logger.warning("WebSocket server / URL is NOT active or reachable. Skipping outbound survey processing until server is active.")
+            return
 
         if specific_survey_id:
             from bson import ObjectId
@@ -349,8 +349,8 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     elif isinstance(n, str):
                         agent_numbers.append(n)
                         
-                if not agent_numbers:
-                    agent_numbers = [getattr(settings, "DEFAULT_AGENT_NUMBER", "918069879620")]
+                # if not agent_numbers:
+                #     agent_numbers = [getattr(settings, "DEFAULT_AGENT_NUMBER", "918069879620")]
                     
                 logger.info(f"Smartflo My Numbers available: {my_numbers_count}. Enforcing maximum concurrent call limit = {max_concurrency}")
 
