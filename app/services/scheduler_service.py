@@ -345,8 +345,10 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                 agent_numbers = []
                 for n in my_numbers_list:
                     if isinstance(n, dict):
-                        num_val = n.get("number")
+                        num_val = n.get("number") or n.get("alias") or n.get("did")
                         if num_val:
+                            # Strip '+' prefix if it came from 'did'
+                            num_val = str(num_val).replace("+", "")
                             agent_numbers.append(num_val)
                     elif isinstance(n, str):
                         agent_numbers.append(n)
