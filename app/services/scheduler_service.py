@@ -353,8 +353,8 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     elif isinstance(n, str):
                         agent_numbers.append(n)
                         
-                # if not agent_numbers:
-                #     agent_numbers = [getattr(settings, "DEFAULT_AGENT_NUMBER", "918069879620")]
+                if not agent_numbers:
+                    raise RuntimeError("No Smartflo agent numbers available. Check your Smartflo authentication token.")
                     
                 logger.info(f"Smartflo My Numbers available: {my_numbers_count}. Enforcing maximum concurrent call limit = {max_concurrency}")
 
@@ -375,9 +375,9 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     call_workflow_urls = ["http://127.0.0.1:8000"]
                 
                 async def trigger_call(num_to_dial, agent_idx):
-                    current_agent = agent_numbers[agent_idx % len(agent_numbers)]
-                    current_url = call_workflow_urls[agent_idx % len(call_workflow_urls)]
                     try:
+                        current_agent = agent_numbers[agent_idx % len(agent_numbers)]
+                        current_url = call_workflow_urls[agent_idx % len(call_workflow_urls)]
                         logger.info(f"Requesting Call Workflow API via {current_url}: Agent={current_agent}, Destination={num_to_dial}, CallerID={caller_id} (Tasks In-Flight: {len(active_tasks)})")
                         api_url = f"{current_url.rstrip('/')}/api/v1/calls/trigger"
                         
