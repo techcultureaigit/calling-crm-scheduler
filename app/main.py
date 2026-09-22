@@ -25,6 +25,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Calling CRM Scheduler API", lifespan=lifespan)
 
+@app.get('/')
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok"}
+
 @app.api_route("/api/v1/voice/dynamic-endpoint", methods=["GET"])
 async def dynamic_voice_endpoint(request: Request):
     """
