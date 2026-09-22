@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import timedelta
 import httpx
 from datetime import datetime
@@ -107,6 +108,22 @@ def pcm_8k_to_wav(pcm_bytes: bytes) -> bytes:
     )
     return header + pcm_bytes
 
+
+def extract_call_sid(data: dict) -> Optional[str]:
+    """
+    Extracts the true telephony call_sid / call_id from dictionary payloads.
+    Filters out ref_id strings (e.g. 'ref_...'), placeholder strings, and WebSocket stream IDs ('MZ...').
+    """
+    if not isinstance(data, dict):
+        return None
+    keys = ["call_sid", "callSid", "call_id", "callId", "uniqueid", "uuid", "id"]
+    for key in keys:
+        val = data.get(key)
+        if val is not None:
+            val_str = str(val).strip()
+            if val_str and not val_str.startswith("ref_") and not val_str.startswith("MZ") and val_str.lower() != "none":
+                return val_str
+    return None
 
 import time
 from typing import Optional
@@ -354,10 +371,9 @@ class SmartfloClient:
             logger.info(f"Smartflo Click-to-Call API response: {data}")
             
             ref_id = None
-            call_id = None
+            raw_call_id = extract_call_sid(data)
             if isinstance(data, dict):
-                ref_id = data.get("ref_id")
-                call_id = data.get("call_id") or data.get("data", {}).get("call_id") or data.get("id") or ref_id
+                ref_id = data.get("ref_id") or data.get("data", {}).get("ref_id")
             
             # Determine target customer number for polling
             target_number = payload.get("customer_number") or destination_number
@@ -370,7 +386,7 @@ class SmartfloClient:
             cleaned_target = clean_number(target_number)
 
             # Instantly record mapping in DB so WebSocket start event resolves survey_id without delay
-            primary_ref = ref_id or (f"ref_{call_id}" if call_id else f"call_{cleaned_target}_{int(datetime.utcnow().timestamp())}")
+            primary_ref = ref_id or (f"ref_{raw_call_id}" if raw_call_id else f"call_{cleaned_target}_{int(datetime.utcnow().timestamp())}")
             if survey_id and create_mapping:
                 try:
                     from app.core.db import get_collection
@@ -379,16 +395,19 @@ class SmartfloClient:
                         "survey_id": survey_id,
                         "customer_number": cleaned_target,
                         "ref_id": primary_ref,
-                        "call_sid": str(call_id) if call_id else primary_ref,
+                        "call_sid": raw_call_id,  # None initially if only ref_id is returned by Smartflo
                         "created_at": datetime.utcnow(),
                         "updated_at": datetime.utcnow()
                     }
+                    if isinstance(custom_identifier, dict) and "server_url" in custom_identifier:
+                        mapping_doc["server_url"] = custom_identifier["server_url"]
+
                     await mappings_col.update_one(
                         {"ref_id": primary_ref},
                         {"$set": mapping_doc},
                         upsert=True
                     )
-                    logger.info(f"Instantly registered call mapping: customer={cleaned_target}, ref_id={primary_ref}, call_id={call_id} -> survey_id={survey_id}")
+                    logger.info(f"Instantly registered call mapping: customer={cleaned_target}, ref_id={primary_ref}, call_sid={raw_call_id} -> survey_id={survey_id}")
                 except Exception as map_err:
                     logger.error(f"Failed to instantly record call mapping: {map_err}")
             
@@ -398,6 +417,8 @@ class SmartfloClient:
             
             logger.info(f"Checking connection status of call to {target_number} (cleaned: {cleaned_target})...")
             
+            call_id = raw_call_id
+
             for attempt in range(1, max_attempts + 1):
                 logger.info(f"Polling call status (attempt {attempt}/{max_attempts})...")
                 await asyncio.sleep(poll_delay)
@@ -434,11 +455,11 @@ class SmartfloClient:
                                 if is_match:
                                     state = str(call.get("state", call.get("status", ""))).lower()
                                     logger.info(f"Found active call matching target. State: {state}")
-                                    if not call_id:
-                                        call_id = call.get("id") or call.get("call_id") or call.get("uniqueid")
+                                    resolved_sid = extract_call_sid(call)
+                                    if resolved_sid:
+                                        call_id = resolved_sid
                                     
                                     # Register call_sid to survey_id mapping by updating existing call document
-                                    resolved_sid = str(call.get("call_id") or call.get("uniqueid") or "")
                                     if resolved_sid and survey_id and create_mapping:
                                         try:
                                             from app.core.db import get_collection
@@ -506,11 +527,11 @@ class SmartfloClient:
                                     (caller and (cleaned_target in caller or caller in cleaned_target))
                                 ):
                                     logger.info("Found answered call in call records!")
-                                    if not call_id:
-                                        call_id = rec.get("id") or rec.get("call_id") or rec.get("uniqueid")
+                                    resolved_sid = extract_call_sid(rec)
+                                    if resolved_sid:
+                                        call_id = resolved_sid
                                     
                                     # Register call_sid to survey_id mapping by updating existing call document
-                                    resolved_sid = str(rec.get("call_id") or rec.get("uniqueid") or "")
                                     if resolved_sid and survey_id and create_mapping:
                                         try:
                                             from app.core.db import get_collection

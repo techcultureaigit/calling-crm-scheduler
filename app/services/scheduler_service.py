@@ -378,41 +378,23 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     try:
                         current_agent = agent_numbers[agent_idx % len(agent_numbers)]
                         current_url = call_workflow_urls[agent_idx % len(call_workflow_urls)]
-                        logger.info(f"Requesting Call Workflow API via {current_url}: Agent={current_agent}, Destination={num_to_dial}, CallerID={caller_id} (Tasks In-Flight: {len(active_tasks)})")
-                        api_url = f"{current_url.rstrip('/')}/api/v1/calls/trigger"
+                        logger.info(f"Initiating call directly from Scheduler for survey {survey_id}: Agent={current_agent}, Destination={num_to_dial}, Workflow Server={current_url} (Tasks In-Flight: {len(active_tasks)})")
                         
-                        payload = {
-                            "survey_id": survey_id,
-                            "agent_number": current_agent,
-                            "customer_number": num_to_dial
-                        }
-                        
-                        async with httpx.AsyncClient(timeout=600.0) as client:
-                            resp = await client.post(api_url, json=payload)
-                            
-                        if resp.status_code == 200:
-                            data = resp.json().get("data", {})
-                            ref_id = data.get("ref_id")
-                            call_id = data.get("call_id") or data.get("id") or ref_id
-                            
-                            if call_id or ref_id:
-                                primary_ref = ref_id or (f"ref_{call_id}" if call_id else f"call_{num_to_dial}_{int(datetime.utcnow().timestamp())}")
-                                mapping_doc = {
-                                    "survey_id": survey_id,
-                                    "customer_number": num_to_dial,
-                                    "ref_id": primary_ref,
-                                    "call_sid": str(call_id) if call_id else primary_ref,
-                                    "created_at": datetime.utcnow(),
-                                    "updated_at": datetime.utcnow()
-                                }
-                                await mappings_col.update_one(
-                                    {"ref_id": primary_ref},
-                                    {"$set": mapping_doc},
-                                    upsert=True
-                                )
-                                logger.info(f"Scheduler recorded mapping: customer={num_to_dial}, call_id={call_id} -> survey_id={survey_id}")
-                        else:
-                            logger.error(f"Call Workflow API failed for {num_to_dial}: {resp.status_code} - {resp.text}")
+                        from app.services.telecommunication_service import initiate_call
+                        result = await initiate_call(
+                            agent_number=current_agent,
+                            destination_number=num_to_dial,
+                            caller_id=current_agent,
+                            is_async=1,
+                            survey_id=survey_id,
+                            create_mapping=True,
+                            custom_identifier={
+                                "survey_id": survey_id,
+                                "customer_number": num_to_dial,
+                                "server_url": current_url
+                            }
+                        )
+                        logger.info(f"Scheduler direct call initiation completed for {num_to_dial}: {result}")
                     except Exception as call_err:
                         logger.error(f"Failed to trigger call to {num_to_dial} for survey {survey_id}: {call_err}")
 

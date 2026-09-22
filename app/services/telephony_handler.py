@@ -1030,8 +1030,9 @@ async def resolve_survey_id_for_call(start_data: dict, initial_message: dict, qu
             pass
 
     # 2. Check call_survey_mappings DB
-    call_sid = start_obj.get("callSid") or init_obj.get("callSid") or init_obj.get("streamSid")
-    ref_id = start_obj.get("ref_id") or init_obj.get("ref_id")
+    from app.services.telecommunication_service import extract_call_sid
+    call_sid = extract_call_sid(start_obj) or extract_call_sid(init_obj)
+    ref_id = start_obj.get("ref_id") or start_obj.get("refId") or init_obj.get("ref_id") or init_obj.get("refId")
     cust_num = start_obj.get("customerNumber") or start_obj.get("customer_number") or start_obj.get("from") or start_obj.get("to")
 
     try:
@@ -1166,9 +1167,10 @@ async def smartflo_websocket_handler(websocket: WebSocket, initial_message: dict
         del streams[stream_sid]
 
     async def handle_start_event(data_msg: dict):
+        from app.services.telecommunication_service import extract_call_sid
         start_data = data_msg.get("start", {}) if isinstance(data_msg.get("start"), dict) else {}
         stream_sid = data_msg.get("streamSid") or start_data.get("streamSid")
-        call_sid = start_data.get("callSid") or data_msg.get("callSid")
+        call_sid = extract_call_sid(start_data) or extract_call_sid(data_msg)
         
         if not stream_sid:
             logger.warning("Start event received with no streamSid.")
@@ -1178,6 +1180,25 @@ async def smartflo_websocket_handler(websocket: WebSocket, initial_message: dict
             logger.info(f"Stream {stream_sid} already started.")
             return
 
+        survey_id, customer_number = await resolve_survey_id_for_call(start_data, data_msg, websocket.query_params.get("survey_id"))
+
+        if not call_sid:
+            try:
+                mappings_col = get_collection("call_survey_mappings")
+                ref_id = start_data.get("ref_id") or start_data.get("refId") or data_msg.get("ref_id") or data_msg.get("refId")
+                mapping = None
+                if ref_id:
+                    mapping = await mappings_col.find_one({"ref_id": str(ref_id)})
+                if not mapping and customer_number:
+                    clean_c = "".join(filter(str.isdigit, str(customer_number)))
+                    if clean_c:
+                        cutoff = datetime.utcnow() - timedelta(minutes=15)
+                        mapping = await mappings_col.find_one({"customer_number": clean_c, "created_at": {"$gte": cutoff}}, sort=[("created_at", -1)])
+                if mapping and mapping.get("call_sid"):
+                    call_sid = str(mapping["call_sid"])
+            except Exception as ex:
+                logger.error(f"Error resolving call_sid from DB: {ex}")
+
         stream = StreamState()
         stream.stream_sid = stream_sid
         stream.call_sid = call_sid
@@ -1185,8 +1206,6 @@ async def smartflo_websocket_handler(websocket: WebSocket, initial_message: dict
         streams[stream_sid] = stream
 
         logger.info(f"Smartflo Stream started. StreamSid: {stream.stream_sid}, CallSid: {stream.call_sid}, SessionId: {stream.session_id}")
-
-        survey_id, customer_number = await resolve_survey_id_for_call(start_data, data_msg, websocket.query_params.get("survey_id"))
         stream.customer_number = customer_number
         
         # Concurrency safety: Prevent duplicate AI sessions if Smartflo AMD/Voicemail triggers two streams
