@@ -6,8 +6,6 @@ from app.core.logger import logger
 import httpx
 from app.core.config import settings
 
-# Global set to track surveys currently being processed by the scheduler
-ACTIVE_SURVEYS_IN_PROCESSING = set()
 
 async def check_websocket_active() -> bool:
     """
@@ -176,11 +174,7 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
 
             caller_id = None
 
-            if survey_id in ACTIVE_SURVEYS_IN_PROCESSING:
-                logger.info(f"Survey {survey_id} is already being processed by another scheduler iteration. Skipping.")
-                continue
 
-            ACTIVE_SURVEYS_IN_PROCESSING.add(survey_id)
 
             logger.info(f"Processing schedule for survey {survey_id} (status: {current_status}) with url: {contact_url}")
 
@@ -214,7 +208,6 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
             
             if not updated_doc:
                 logger.info(f"Survey {survey_id} is already active or lease has not expired. Skipping.")
-                ACTIVE_SURVEYS_IN_PROCESSING.discard(survey_id)
                 continue
             
             try:
@@ -443,7 +436,6 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                         {"_id": survey["_id"]},
                         {"$set": {"scheduling_status": "completed", "schedule.status": "completed", "error": "No numbers found"}}
                     )
-                    ACTIVE_SURVEYS_IN_PROCESSING.discard(survey_id)
                     continue
 
                 # Wait for remaining tasks
@@ -462,7 +454,6 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                     }}
                 )
                 logger.info(f"Successfully finished call scheduling for survey {survey_id}")
-                ACTIVE_SURVEYS_IN_PROCESSING.discard(survey_id)
                 
             except Exception as proc_err:
                 logger.error(f"Error processing schedule for survey {survey_id}: {proc_err}")
@@ -474,7 +465,6 @@ async def process_scheduled_surveys(specific_survey_id: str = None):
                         "error": str(proc_err)
                     }}
                 )
-                ACTIVE_SURVEYS_IN_PROCESSING.discard(survey_id)
     except Exception as e:
         logger.error(f"Error in process_scheduled_surveys: {e}")
 

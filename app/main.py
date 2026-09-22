@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Calling CRM Scheduler API", lifespan=lifespan)
 
-@app.get('/')
+@app.get('/health')
 async def health_check():
     """Health check endpoint"""
     return {"status": "ok"}
