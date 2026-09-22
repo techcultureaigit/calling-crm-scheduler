@@ -1,5 +1,10 @@
 import os
 import random
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 import asyncio
@@ -30,8 +35,11 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "ok"}
 
-@app.api_route("/api/v1/voice/dynamic-endpoint", methods=["GET"])
+_rr_counter = 0
+
+@app.api_route("/api/v1/voice/dynamic-endpoint", methods=["GET", "POST"])
 async def dynamic_voice_endpoint(request: Request):
+    global _rr_counter
     """
     Dynamic endpoint for voice streaming that returns the WebSocket URL.
     Handles both GET and POST requests from the Voice Bot platform.
@@ -72,9 +80,25 @@ async def dynamic_voice_endpoint(request: Request):
         except Exception as sync_err:
             logger.error(f"Error syncing call_sid from dynamic-endpoint: {sync_err}")
     
-    ws_urls_env = os.getenv("WEBSOCKET_URL") or os.getenv("WEBSOCket_URL") or "wss://voice-pilot-calling-server-2.techculture.ai"
-    ws_urls = [url.strip().rstrip('/') for url in ws_urls_env.split(",") if url.strip()]
-    base_ws_url = random.choice(ws_urls) if ws_urls else "wss://voice-pilot-calling-server-2.techculture.ai"
+    ws_urls_env = os.getenv("WEBSOCKET_URL") or os.getenv("WEBSOCket_URL") or ""
+    
+    import json
+    try:
+        # If it looks like a JSON array from the .env file
+        if ws_urls_env.strip().startswith("["):
+            ws_urls = json.loads(ws_urls_env)
+        else:
+            # Fallback to comma-separated parsing
+            ws_urls = [url.strip().rstrip('/') for url in ws_urls_env.split(",") if url.strip()] if ws_urls_env else []
+    except Exception as e:
+        logger.error(f"Failed to parse WEBSOCKET_URL from .env: {e}")
+        ws_urls = []
+        
+    if ws_urls:
+        base_ws_url = ws_urls[_rr_counter % len(ws_urls)]
+        _rr_counter += 1
+    else:
+        base_ws_url = "wss://voice-pilot-calling-server-2.techculture.ai"
     
     # We construct the URL to point to our streaming endpoint with the call_id
     wss_url = f"{base_ws_url}/api/v1/survey/ws/{call_id}"
